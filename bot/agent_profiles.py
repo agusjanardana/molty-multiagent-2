@@ -143,6 +143,13 @@ class AgentProfileStore:
             if profile.get("agent_key") == agent_key:
                 profile.update(fields)
                 self.save()
+                if is_railway():
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = None
+                    if loop and not loop.is_closed():
+                        loop.create_task(sync_profiles_to_railway(self.profiles))
                 return
 
 

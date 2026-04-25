@@ -18,6 +18,7 @@ from bot.setup.whitelist import ensure_whitelist
 from bot.state_router import IN_GAME, NO_IDENTITY, READY_FREE, READY_PAID, determine_state
 from bot.config import DASHBOARD_SHOW_PRIVATE_KEYS
 from bot.utils.logger import get_logger
+from bot.web3.whitelist_contract import get_molty_wallet_address
 
 log = get_logger(__name__)
 
@@ -173,7 +174,14 @@ class Heartbeat:
         self._agent_name = me.get("agentName", me.get("name", self._agent_name))
         balance = me.get("balance", 0)
         readiness = me.get("readiness", {}) if isinstance(me.get("readiness"), dict) else {}
-        sc_wallet = readiness.get("scWallet") or self._known_owner_wallet(self.profile.get("owner_eoa", ""))
+        sc_wallet_raw = readiness.get("scWallet")
+        sc_wallet = ""
+        if isinstance(sc_wallet_raw, str) and sc_wallet_raw.startswith("0x"):
+            sc_wallet = sc_wallet_raw
+        else:
+            sc_wallet = self._known_owner_wallet(self.profile.get("owner_eoa", ""))
+            if not sc_wallet and sc_wallet_raw:
+                sc_wallet = await get_molty_wallet_address(self.profile.get("owner_eoa", ""))
         if sc_wallet and sc_wallet != self.profile.get("molty_royale_wallet", ""):
             self._save_profile(molty_royale_wallet=sc_wallet)
             self._propagate_owner_wallet(self.profile.get("owner_eoa", ""), sc_wallet)
