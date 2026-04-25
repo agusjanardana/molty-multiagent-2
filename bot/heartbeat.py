@@ -56,6 +56,39 @@ class Heartbeat:
         if self.profile_store:
             self.profile_store.update_profile(self.profile["agent_key"], **fields)
 
+    def _propagate_owner_wallet(self, owner_eoa: str, wallet_addr: str):
+        if not owner_eoa or not wallet_addr:
+            return
+        owner_lower = owner_eoa.lower()
+        if self.profile_store:
+            for profile in self.profile_store.profiles:
+                if (profile.get("owner_eoa", "")).lower() == owner_lower:
+                    profile["molty_royale_wallet"] = wallet_addr
+                    self.profile_store.update_profile(
+                        profile["agent_key"],
+                        molty_royale_wallet=wallet_addr,
+                    )
+        for agent_id, agent in dashboard_state.agents.items():
+            if (agent.get("owner_eoa", "")).lower() == owner_lower:
+                dashboard_state.update_agent(agent_id, {
+                    "molty_royale_wallet": wallet_addr,
+                })
+
+    def _known_owner_wallet(self, owner_eoa: str) -> str:
+        if not owner_eoa:
+            return ""
+        owner_lower = owner_eoa.lower()
+        if self.profile.get("molty_royale_wallet"):
+            return self.profile["molty_royale_wallet"]
+        if self.profile_store:
+            for profile in self.profile_store.profiles:
+                if (profile.get("owner_eoa", "")).lower() == owner_lower and profile.get("molty_royale_wallet"):
+                    return profile["molty_royale_wallet"]
+        for agent in dashboard_state.agents.values():
+            if (agent.get("owner_eoa", "")).lower() == owner_lower and agent.get("molty_royale_wallet"):
+                return agent["molty_royale_wallet"]
+        return ""
+
     def _dashboard_private_key(self) -> str:
         return self.profile.get("agent_private_key", "")
 
@@ -140,6 +173,10 @@ class Heartbeat:
         self._agent_name = me.get("agentName", me.get("name", self._agent_name))
         balance = me.get("balance", 0)
         readiness = me.get("readiness", {}) if isinstance(me.get("readiness"), dict) else {}
+        sc_wallet = readiness.get("scWallet") or self._known_owner_wallet(self.profile.get("owner_eoa", ""))
+        if sc_wallet and sc_wallet != self.profile.get("molty_royale_wallet", ""):
+            self._save_profile(molty_royale_wallet=sc_wallet)
+            self._propagate_owner_wallet(self.profile.get("owner_eoa", ""), sc_wallet)
         whitelist_approved = bool(readiness.get("whitelistApproved", False))
         identity_registered = readiness.get("erc8004Id") is not None
         dashboard_state.update_agent(self._agent_key, {
@@ -153,7 +190,7 @@ class Heartbeat:
             "agent_wallet_address": self.profile.get("agent_wallet_address", ""),
             "agent_private_key": self._dashboard_private_key(),
             "owner_eoa": self.profile.get("owner_eoa", ""),
-            "molty_royale_wallet": self.profile.get("molty_royale_wallet", ""),
+            "molty_royale_wallet": sc_wallet or self.profile.get("molty_royale_wallet", ""),
         })
 
         if state == NO_IDENTITY:
@@ -215,24 +252,34 @@ class Heartbeat:
             })
 
             if self.profile.get("auto_sc_wallet", True):
-                self._set_owner_setup_state(
-                    owner_eoa,
-                    step="wallet setup",
-                )
-                dashboard_state.update_agent(self._agent_key, {
-                    "last_action": "Running owner setup: wallet setup",
-                    "shared_owner_step": "wallet setup",
-                })
-                wallet_addr = await ensure_molty_wallet(
-                    self.api,
-                    owner_eoa,
-                    profile=self.profile,
-                    save_profile=self._save_profile,
-                )
-                if not wallet_addr:
-                    wait_after = 30
+                known_wallet = self._known_owner_wallet(owner_eoa)
+                if known_wallet:
+                    self._save_profile(molty_royale_wallet=known_wallet)
+                    self._propagate_owner_wallet(owner_eoa, known_wallet)
+                    dashboard_state.update_agent(self._agent_key, {
+                        "last_action": "Running owner setup: shared wallet already known",
+                        "shared_owner_step": "shared wallet already known",
+                    })
                 else:
-                    self.profile["molty_royale_wallet"] = wallet_addr
+                    self._set_owner_setup_state(
+                        owner_eoa,
+                        step="wallet setup",
+                    )
+                    dashboard_state.update_agent(self._agent_key, {
+                        "last_action": "Running owner setup: wallet setup",
+                        "shared_owner_step": "wallet setup",
+                    })
+                    wallet_addr = await ensure_molty_wallet(
+                        self.api,
+                        owner_eoa,
+                        profile=self.profile,
+                        save_profile=self._save_profile,
+                    )
+                    if not wallet_addr:
+                        wait_after = 30
+                    else:
+                        self.profile["molty_royale_wallet"] = wallet_addr
+                        self._propagate_owner_wallet(owner_eoa, wallet_addr)
 
             if wait_after == 0 and self.profile.get("auto_whitelist", True):
                 self._set_owner_setup_state(
