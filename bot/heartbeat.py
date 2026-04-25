@@ -99,6 +99,30 @@ class Heartbeat:
     def _dashboard_private_key(self) -> str:
         return self.profile.get("agent_private_key", "")
 
+    def _owner_group_profiles(self, owner_eoa: str) -> list[dict]:
+        if not owner_eoa or not self.profile_store:
+            return [self.profile]
+        owner_lower = owner_eoa.lower()
+        return [
+            profile for profile in self.profile_store.profiles
+            if (profile.get("owner_eoa", "")).lower() == owner_lower
+        ]
+
+    def _owner_group_leader_key(self, owner_eoa: str) -> str:
+        profiles = self._owner_group_profiles(owner_eoa)
+        if not profiles:
+            return self._agent_key
+        return profiles[0].get("agent_key", self._agent_key)
+
+    def _owner_group_has_whitelisted_agent(self, owner_eoa: str) -> bool:
+        if not owner_eoa:
+            return False
+        owner_lower = owner_eoa.lower()
+        for agent in dashboard_state.agents.values():
+            if (agent.get("owner_eoa", "")).lower() == owner_lower and agent.get("whitelisted"):
+                return True
+        return False
+
     def _set_owner_setup_state(self, owner_eoa: str, **fields):
         dashboard_state.set_owner_setup(owner_eoa, fields)
 
@@ -238,6 +262,30 @@ class Heartbeat:
                 "last_action": "Missing owner EOA",
             })
             await asyncio.sleep(30)
+            return
+
+        leader_key = self._owner_group_leader_key(owner_eoa)
+        if not self._owner_group_has_whitelisted_agent(owner_eoa) and self._agent_key != leader_key:
+            leader_name = next(
+                (
+                    agent.get("name", leader_key)
+                    for key, agent in dashboard_state.agents.items()
+                    if key == leader_key
+                ),
+                leader_key,
+            )
+            dashboard_state.update_agent(self._agent_key, {
+                "status": "idle",
+                "last_action": f"Waiting for bootstrap leader {leader_name}",
+                "shared_owner_waiting_for": leader_name,
+                "shared_owner_step": "bootstrap leader setup",
+            })
+            dashboard_state.add_log(
+                f"Waiting for bootstrap leader {leader_name} before shared-owner setup",
+                "info",
+                self._agent_key,
+            )
+            await asyncio.sleep(10)
             return
 
         owner_lock = _get_owner_setup_lock(owner_eoa)
