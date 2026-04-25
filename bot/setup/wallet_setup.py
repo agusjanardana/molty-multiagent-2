@@ -17,7 +17,8 @@ async def ensure_molty_wallet(
 ) -> str:
     """Create or recover the owner SC wallet and return its address."""
     existing = (profile or {}).get("molty_royale_wallet", "")
-    if existing:
+    confirmed = bool((profile or {}).get("molty_royale_wallet_confirmed", False))
+    if existing and confirmed:
         log.info("MoltyRoyale Wallet already known: %s", existing)
         return existing
 
@@ -27,8 +28,9 @@ async def ensure_molty_wallet(
         log.info("MoltyRoyale Wallet created: %s", wallet_addr)
         if profile is not None:
             profile["molty_royale_wallet"] = wallet_addr
+            profile["molty_royale_wallet_confirmed"] = True
         if save_profile:
-            save_profile(molty_royale_wallet=wallet_addr)
+            save_profile(molty_royale_wallet=wallet_addr, molty_royale_wallet_confirmed=True)
         return wallet_addr
     except APIError as exc:
         if exc.code in ("CONFLICT", "WALLET_ALREADY_EXISTS"):
@@ -51,8 +53,9 @@ async def _recover_wallet_address(owner_eoa: str, profile: dict | None, save_pro
             log.info("Recovered MoltyRoyale Wallet: %s", wallet_addr)
             if profile is not None:
                 profile["molty_royale_wallet"] = wallet_addr
+                profile["molty_royale_wallet_confirmed"] = False
             if save_profile:
-                save_profile(molty_royale_wallet=wallet_addr)
+                save_profile(molty_royale_wallet=wallet_addr, molty_royale_wallet_confirmed=False)
             return wallet_addr
     except Exception as exc:
         log.warning("On-chain wallet recovery failed: %s", exc)

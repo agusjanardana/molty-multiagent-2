@@ -58,6 +58,7 @@ def _normalize_profile(raw: dict, index: int) -> dict:
     profile["auto_identity"] = bool(profile.get("auto_identity", AUTO_IDENTITY))
     profile["enable_memory"] = bool(profile.get("enable_memory", ENABLE_MEMORY))
     profile["molty_royale_wallet"] = profile.get("molty_royale_wallet", "")
+    profile["molty_royale_wallet_confirmed"] = bool(profile.get("molty_royale_wallet_confirmed", False))
     profile["erc8004_token_id"] = profile.get("erc8004_token_id")
     return profile
 
@@ -308,10 +309,15 @@ def serialize_profiles_compact(profiles: list[dict]) -> tuple[str, str]:
         compact_profiles.append({
             "agent_name": profile.get("agent_name", ""),
             "api_key": profile.get("api_key", ""),
+            "account_id": profile.get("account_id", ""),
+            "public_id": profile.get("public_id", ""),
             "agent_wallet_address": profile.get("agent_wallet_address", ""),
             "agent_private_key": profile.get("agent_private_key", ""),
             "owner_eoa": profile.get("owner_eoa", ""),
             "owner_private_key": profile.get("owner_private_key", ""),
+            "molty_royale_wallet": profile.get("molty_royale_wallet", ""),
+            "molty_royale_wallet_confirmed": bool(profile.get("molty_royale_wallet_confirmed", False)),
+            "erc8004_token_id": profile.get("erc8004_token_id"),
             "room_mode": profile.get("room_mode", ROOM_MODE),
         })
     payload = json.dumps({"accounts": compact_profiles}, separators=(",", ":"))
